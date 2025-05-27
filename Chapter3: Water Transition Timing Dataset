@@ -1,0 +1,793 @@
+var Small_Regions = ee.FeatureCollection('projects/ee-gustavoonagel/assets/Quadrado_Coast')
+var table2 = ee.FeatureCollection('users/gustavoonagel/Limiar_World')
+var table3 = ee.FeatureCollection('projects/ee-gustavoonagel/assets/Hexagon_Merge_Basin_Valido')
+var table4 = ee.FeatureCollection('projects/ee-gustavoonagel/assets/Quadrado_Coast')
+var table5 = ee.FeatureCollection('projects/ee-gustavonagel/assets/Limiar_World_1')
+var geometry = ee.Geometry.Point(91.103506006669, 22.42091019328017);
+
+
+var table = table5
+var Small_Regions = table3.merge(table4)
+
+Map.setCenter(90.8322, 22.6754, 10);
+
+///////////////////////////
+///////////////////////////// 
+
+//Map.addLayer(table, {}, 'table')
+Map.addLayer(Small_Regions, {}, 'small')
+//Map.addLayer(table, {}, 'table')
+
+
+var batch = require('users/fitoprincipe/geetools:batch')
+
+
+var Small_Collection = Small_Regions.filterBounds(geometry)
+                          .filter(ee.Filter.neq('ID', 863))
+                          .filter(ee.Filter.neq('ID', 864)); //.filterBounds(geometry)
+                        
+
+////////////// Filter only polygons in the FeatureCollection /////////////////////////
+
+var Small_Collection = Small_Collection.map(function(f) {
+  return f.set('geo_type', f.geometry().type())
+})
+
+var Small_Collection = Small_Collection.map(function (feature) {
+  // This can't (I think) be expressed as an ee.Filter, so use map & dropNulls instead
+  var filteredGeoms = feature.geometry().geometries().map(function (geometry) {
+    geometry = ee.Geometry(geometry);
+    // Test is reversed because we don't have a simple "equals" and compareTo
+    // returns 0 for equal.
+    return ee.Algorithms.If(geometry.type().compareTo('Polygon'), null, geometry);
+  }, true);
+  return feature.setGeometry(ee.Geometry.MultiPolygon(filteredGeoms));
+});
+
+//Small_Collection = Small_Collection.filter(ee.Filter.or(
+//  ee.Filter.eq('geo_type', 'Polygon'), ee.Filter.eq('geo_type', 'MultiPolygon')))
+
+
+ 
+//////////// Transform ImageCollection in List to Iterate
+
+var collectionList = Small_Collection.toList(Small_Regions.size())
+var n = collectionList.size().getInfo();
+
+print(n)
+
+//Map.addLayer(Small_Collection)
+
+
+
+var empty = ee.Image().byte();
+var palette = ['FF0000', '00FF00', '0000FF'];
+var fills = empty.paint({featureCollection: table, color: 'limiar_GN1', });
+var palettesNDCI = require('users/gena/packages:palettes');                                   //// Color Scale for Bloom
+var visNDCI = {min:-52, max:58, palette: palettesNDCI.colorbrewer.RdYlBu[3,4,5,6,7,8,9,10,11]}
+//Map.addLayer(fills.updateMask(fills.neq(1000)), visNDCI, 'colored countries - before')
+
+//Map.addLayer(table) 
+
+
+//var imagem = ee.ImageCollection([image, image2, image3, image4]).mosaic()
+//var kernel = ee.Kernel.circle({radius: 1});
+//Map.addLayer(imagem.focalMin({kernel: kernel, iterations: 1}).focalMax({kernel: kernel, iterations: 1}))
+
+
+for (var i = 0; i < n; i++) {
+      
+      var Featuree = ee.Feature(collectionList.get(i)).geometry()
+      var feature_Collection = table.filterBounds(Featuree.buffer(-100)).first()
+      var feature100 = ee.Number(feature_Collection.get('limiar_mND')).divide(100)
+      var medianNDWI = feature100
+      
+      print(i)
+      
+      var feature1000 = ee.Number(feature_Collection.get('limiar_GN1')).divide(100)
+      var medianNDWI_GN = feature1000
+
+      var Regiao = Featuree
+
+        var dataset = ee.Image('JRC/GSW1_4/GlobalSurfaceWater').select("max_extent").selfMask()
+        
+        var RADIX = 2;  // Radix for binary (base 2) data.
+
+            var extractQABits = function (qaBand, bitStart, bitEnd) {
+              var numBits = bitEnd - bitStart + 1;
+              var qaBits = qaBand.rightShift(bitStart).mod(Math.pow(RADIX, numBits));
+              return qaBits;
+            };
+
+          function prepSrL8(image) {
+            var cloudShadowBitMask = (1 << 3);
+            var cloudsBitMask = (1 << 5);
+            var snowBitMask = (1 << 5);
+            var waterBitMask = (1 << 2);
+            
+            var qa = image.select('QA_PIXEL');
+            // Both flags should be set to zero, indicating clear conditions.
+            var mask = qa.bitwiseAnd(snowBitMask).eq(0);
+            
+            var bitStartShadowConfidence = 12;
+            var bitEndShadowConfidence = 13;
+            var qaBitsShadowConfidence = extractQABits(qa, bitStartShadowConfidence, bitEndShadowConfidence);
+            // Test for shadows, based on the Cloud Shadow Confidence value.
+            var testShadowConfidence = qaBitsShadowConfidence.gte(3).not().selfMask().rename('Hi'); 
+            
+            
+                      // Develop masks for unwanted pgixels (fill, cloud, cloud shadow).
+                      var qaMask = image.select('QA_PIXEL').bitwiseAnd(parseInt('11111', 2)).eq(0);
+                      var saturationMask = image.select('QA_RADSAT').eq(0);
+                    
+                      var opticalBands = image.select('SR_B.').multiply(0.0000275).add(-0.2);
+                      var thermalBands = image.select('ST_B.*').multiply(0.00341802).add(149.0);
+                      
+                      return image.addBands(opticalBands, null, true)
+                                  .addBands(thermalBands, null, true)
+                                  .addBands(testShadowConfidence)
+                                  .updateMask(qaMask)
+                                  .updateMask(saturationMask)
+                                  .updateMask(mask)
+                                  .updateMask(testShadowConfidence)
+                                  .updateMask(dataset);
+                  }
+        
+        //////////////////////////// Função para recortar a imagem 
+        var recorte = function(image) {
+          // Crop by table extension
+          return image.clip(Regiao).copyProperties(image);
+        };
+        
+        
+        //////////////////////////// mNDWI
+        
+        var mNDWI = function(image){
+            var mndwi = image.expression(
+            '((Green) - (SWIR)) / ((Green) + (SWIR))', {
+              'Blue': image.select('blue'),
+              'NIR': image.select('NIR'),
+              'Green': image.select('Green'),
+              'Red': image.select('Red'),
+              'SWIR': image.select('SWIR1'),
+            });
+            
+          var mndwi = mndwi.rename('mndwi').updateMask(mndwi.gt(-1).and(mndwi.lt(1)));
+          var mndwi = mndwi.rename('mndwi');
+          
+          
+        var ndwi = image.expression(
+          '(((Green + Red) / 2) - (NIR)) / (((Green + Red) / 2) + (NIR))', {
+            'SWIR1': image.select('SWIR1'),
+            'NIR': image.select('NIR'),
+            'Green': image.select('Green'),
+            'SWIR': image.select('SWIR'),
+            'Red': image.select('Red'),
+          });
+          
+        var ndwi = ndwi.rename('water').updateMask(ndwi.gt(-1).and(ndwi.lt(1)));
+        
+        return mndwi.addBands(ndwi).copyProperties(image, ["system:time_start"]); 
+        }; 
+        
+        
+        //////////////////////// Function to create one band of Time
+        
+        var createTimeBand = function(image) {
+          // Scale milliseconds by a large constant to avoid very small slopes
+          // in the linear regression output.
+          return image.addBands(image.metadata('system:time_start').multiply(3.1715e-11)).copyProperties(image, ["system:time_start"]);
+        };
+        
+        ////////////////////////////// LANDSAT 9 /////////////////////////////
+//////////////////////////////////////////////////////////////////////
+
+var changeNames_L8 = function(img){
+  return img.select(['SR_B2', 'SR_B3', 'SR_B4','SR_B5', 'SR_B6', 'SR_B7', "QA_PIXEL"],["blue", 'Green', 'Red','NIR', 'SWIR', 'SWIR1', "QA_PIXEL"]);
+}
+
+var Landsat_9 = ee.ImageCollection("LANDSAT/LC09/C02/T1_L2")
+                  .filterBounds(Regiao)
+                  .filter(ee.Filter.lt('CLOUD_COVER', 50))
+                  .map(prepSrL8)
+                  .map(recorte)
+                  .map(changeNames_L8)
+                  .map(mNDWI)
+                  .map(createTimeBand)
+
+////////////////////////////// LANDSAT 8 /////////////////////////////
+//////////////////////////////////////////////////////////////////////
+
+var changeNames_L8 = function(img){
+  return img.select(['SR_B2', 'SR_B3', 'SR_B4','SR_B5', 'SR_B6', 'SR_B7', "QA_PIXEL"],["blue", 'Green', 'Red','NIR', 'SWIR', 'SWIR1', "QA_PIXEL"]);
+}
+
+var Landsat_8 = ee.ImageCollection('LANDSAT/LC08/C02/T1_L2')
+                  .filterBounds(Regiao)
+                  .filter(ee.Filter.lt('CLOUD_COVER', 50))
+                  .map(prepSrL8)
+                  .map(recorte)
+                  .map(changeNames_L8)
+                  .map(mNDWI)
+                  .map(createTimeBand)
+  
+  
+////////////////////////////// LANDSAT 5 /////////////////////////////
+//////////////////////////////////////////////////////////////////////  
+
+var changeNames_L5 = function(img){
+  return img.select(['SR_B1', 'SR_B2', 'SR_B3','SR_B4', 'SR_B5', 'SR_B7', "QA_PIXEL"],["blue", 'Green', 'Red','NIR', 'SWIR', 'SWIR1', "QA_PIXEL"]);
+}
+                  
+var Landsat_5 = ee.ImageCollection('LANDSAT/LT05/C02/T1_L2')
+                  .filterBounds(Regiao)
+                  .filter(ee.Filter.lt('CLOUD_COVER', 50))
+                  .map(prepSrL8)
+                  .map(recorte)
+                  .map(changeNames_L5)
+                  .map(mNDWI)
+                  .map(createTimeBand)
+
+///////////////////////////////////// MERGE ////////////////////////////
+///////////////////////////////////////////////////////////////////////
+
+var LANDSAT = Landsat_8.merge(Landsat_5).merge(Landsat_9).sort('system:time_start', true)
+
+
+// Pos processing __________________________________________________________
+
+var years = ee.List.sequence(1984, 2023, 1)
+
+var LANDSAT_ANUAL = ee.ImageCollection.fromImages(
+  years.map(function(y){
+    var t1 = ee.Date.fromYMD(ee.Number(y),1,1)
+    return LANDSAT
+    .filter(ee.Filter.calendarRange(y, y, 'year'))
+    .median()
+    .set('year', y)
+    .set('system:time_start', t1.millis())
+  }).flatten());
+  
+LANDSAT_ANUAL = LANDSAT_ANUAL.filter(ee.Filter.neq('system:band_names', []))
+
+
+var LANDSAT_ANUAL = LANDSAT_ANUAL.map(function(image){
+  var currentDate = ee.Date(image.get('system:time_start'));
+  var meanImage = LANDSAT_ANUAL.filterDate(
+                currentDate.advance(-5, 'year'), currentDate.advance(5, 'year'))
+                .filter(ee.Filter.neq('system:band_names', []))
+               .median()
+                .set('system:time_start', image.get('system:time_start'))
+                .set('year', image.get('year'))
+                ;
+                
+   //replace all masked values:
+  return meanImage;
+});
+
+//var LANDSAT_ANUAL = LANDSAT_ANUAL.updateMask(LANDSAT_ANUAL.select('water').count().gt(18))
+//Map.addLayer(LANDSAT_ANUAL.select('water').count(), {}, 'Count')
+
+//Map.addLayer(LANDSAT_ANUAL.select('water'))
+  
+// Apply a Linear Regression
+
+
+var linearFit_ndwi = LANDSAT_ANUAL.select(['system:time_start', 'mndwi'])
+  .reduce(ee.Reducer.linearFit()).select(['scale']);
+  
+var linearFit = linearFit_ndwi
+
+var visualizacao = {
+  min: -0.5,
+  max: 0.5,
+  palette: ['red', 'white', 'blue']
+}
+  
+//Map.addLayer(LANDSAT_ANUAL.select("mndwi"), {}, "LANDSAT mndwi")
+//Map.addLayer(LANDSAT_ANUAL.select("water"), {}, "LANDSAT water")
+//Map.addLayer(linearFit, visualizacao, 'Slope')
+  
+
+var linearFit_positive = linearFit.gt(0.005).selfMask()  // 10% Quantil
+var linearFit_positive = linearFit_positive.neq(1)
+
+var linearFit_negative = linearFit.lt(-0.008).selfMask(); // 10% Quantil
+var linearFit_negative = linearFit_negative.neq(1)
+
+
+
+var visParams = {
+  palette: ['0000FF']
+};
+var visParams5 = {
+  palette: ['red']
+};
+  
+
+var ic_list = LANDSAT_ANUAL.sort('system:time_start').toList(LANDSAT_ANUAL.size())
+
+var ic_grad = ic_list.slice(0,-1)
+  .zip(ic_list.slice(1))
+  .map(function(f) { 
+    
+    /////////// mNDWI
+    var water0 = ee.Image(ee.List(f).get(0)).select('mndwi')
+    var water1 = ee.Image(ee.List(f).get(1)).select('mndwi').rename('mndwi1')
+    
+    /////////// mNDWI
+     var water0_water = ee.Image(ee.List(f).get(0)).select('water').rename('water')
+    var water1_water = ee.Image(ee.List(f).get(1)).select('water').rename('water1')
+   
+
+    ////////// Difference between Smooth and mNDWI
+    
+    return water0
+        .addBands(water1)
+        .addBands(water1_water)
+        .addBands(water0_water)
+        .set('year1', ee.Image(ee.List(f).get(0)).get('year'))
+        .set('year2', ee.Image(ee.List(f).get(1)).get('year'))
+       })
+       
+   
+var ic_grad = ee.ImageCollection(ic_grad)
+
+var Classification_sed = function(image) {
+  var val1 = image.select('mndwi')
+  var val2 = image.select('mndwi1')
+  var condition = (val1.gt(medianNDWI).and(val2.lt(medianNDWI))).rename('condition')
+  
+  var image1 = image.updateMask(condition)
+  
+  return image1;
+};
+
+var Classification_ero = function(image) {
+  var val1 = image.select('mndwi')
+  var val2 = image.select('mndwi1')
+  var condition = (val1.lt(medianNDWI).and(val2.gt(medianNDWI))).rename('condition')
+  
+  var image1 = image.updateMask(condition)
+  
+  return image1;
+};
+
+
+
+var Sed = ic_grad.map(Classification_sed).select('mndwi').max().gt(1000)
+var Ero = ic_grad.map(Classification_ero).select('mndwi').max().gt(1000)
+
+//Map.addLayer(Sed, {}, 'Sed')
+
+////////////////// Additional Filter using the Sentinel World Cover
+
+var Land = ee.ImageCollection("ESA/WorldCover/v100").first().neq(80).selfMask(); // Land
+var Water = ee.ImageCollection("ESA/WorldCover/v100").first().eq(80).selfMask();
+var Sed = Sed.multiply(Land)
+var Ero = Ero.multiply(Water)
+
+////////// Combine slope with Threshold 
+
+var sed = Sed.add(linearFit_negative).rename('Sedimentation').add(1)//.eq(2).selfMask()
+var ero = Ero.add(linearFit_positive).rename('Erosion').add(1)
+        
+        //Map.addLayer(ero, {palette:['blue']}, 'ero')
+        //Map.addLayer(sed, {palette:['red']}, 'sed')
+        
+
+        //////////////////////////////////////// Year Detection ///////////////////////////////////////
+        ///////////////////////////////////////////////////////////////////////////////////////////////////
+        ///////////////////////////////////////////////////////////////////////////////////////////////////
+        
+        //print(LANDSAT_ANUAL)
+        //Map.addLayer(LANDSAT_ANUAL.select('water'))
+        
+        var clouds_free = LANDSAT_ANUAL.select('water').filter(ee.Filter.neq('system:band_names', []))
+    
+        ////////////////////// Create a -1 +1 Smoothed Time Series
+
+        var addBanda = function(image){
+          var condition = ee.Algorithms.If(image.bandNames().contains("smooth"), 
+          image.select("smooth"), 
+          ee.Image(-99))
+          var cond = ee.Image(condition).rename('smooth')
+          return cond
+        }
+          
+        var replacedVals1 = clouds_free.map(function(image){
+          var currentDate = ee.Date(image.get('system:time_start'));
+          var meanImage = clouds_free.filterDate(
+                        currentDate.advance(-1, 'year'), currentDate.advance(1, 'year'))
+                        .filter(ee.Filter.neq('system:band_names', []))
+                        .mean()
+                        .set('system:time_start', image.get('system:time_start'))
+                        .set('year', image.get('year'))
+                        .rename('smooth');
+          // replace all masked values:
+          return meanImage;
+        });
+        
+        var replacedVals1 = replacedVals1.map(addBanda)
+        
+        ////////////////////// Create a -2 +2 Smoothed Time Series
+        
+        var addBanda2 = function(image){
+          var condition = ee.Algorithms.If(image.bandNames().contains("smooth2"), 
+          image.select("smooth2"), 
+          ee.Image(-99))
+          var cond = ee.Image(condition).rename('smooth2')
+          return cond
+        }
+        
+        var replacedVals2 = clouds_free.map(function(image){
+          var currentDate = ee.Date(image.get('system:time_start'));
+          var meanImage = clouds_free.filterDate(
+                        currentDate.advance(-2, 'year'), currentDate.advance(2, 'year'))
+                        .filter(ee.Filter.neq('system:band_names', []))
+                        .mean()
+                        .set('system:time_start', image.get('system:time_start'))
+                        .set('year', image.get('year'))
+                        .rename('smooth2');
+          // replace all masked values:
+          return meanImage;
+        });
+        
+        var replacedVals2 = replacedVals2.map(addBanda2)
+        
+        ////////////////////// Create a -3 +3 Smoothed Time Series
+        
+        var addBanda3 = function(image){
+          var condition = ee.Algorithms.If(image.bandNames().contains("smooth3"), 
+          image.select("smooth3"), 
+          ee.Image(-99))
+          var cond = ee.Image(condition).rename('smooth3')
+          return cond
+        }
+        
+        var replacedVals3 = clouds_free.map(function(image){
+          var currentDate = ee.Date(image.get('system:time_start'));
+          var meanImage = clouds_free.filterDate(
+                        currentDate.advance(-3, 'year'), currentDate.advance(3, 'year'))
+                        .filter(ee.Filter.neq('system:band_names', []))
+                        .mean()
+                        .set('system:time_start', image.get('system:time_start'))
+                        .set('year', image.get('year'))
+                        .rename('smooth3');
+          // replace all masked values:
+          return meanImage;
+        });
+        
+        var replacedVals3 = replacedVals3.map(addBanda3)
+        
+        
+        ////////////////////// Create a -4 +4 Smoothed Time Series
+        
+        var replacedVals4 = clouds_free.map(function(image){
+          var currentDate = ee.Date(image.get('system:time_start'));
+          var meanImage = clouds_free.filterDate(
+                        currentDate.advance(-4, 'year'), currentDate.advance(4, 'year'))
+                        .filter(ee.Filter.neq('system:band_names', []))
+                        .mean()
+                        .set('system:time_start', image.get('system:time_start'))
+                        .set('year', image.get('year'))
+                        .rename('smooth4');
+          // replace all masked values:
+          return meanImage;
+        });
+        
+        ////////////////////// Create a -5 +5 Smoothed Time Series
+        
+        var replacedVals5 = clouds_free.map(function(image){
+          var currentDate = ee.Date(image.get('system:time_start'));
+          var meanImage = clouds_free.filterDate(
+                        currentDate.advance(-5, 'year'), currentDate.advance(5, 'year'))
+                        .filter(ee.Filter.neq('system:band_names', []))
+                        .mean()
+                        .set('system:time_start', image.get('system:time_start'))
+                        .set('year', image.get('year'))
+                        .rename('smooth5');
+                        
+          // replace all masked values:
+          return meanImage;
+        });
+        
+        ///////////////////////// Function to Smooth condition (for -1 +1 Smooth)
+        
+        var Fill_in = function(image){
+          var condition = ee.Algorithms.If(image.bandNames().contains("water"), 
+          image.select("smooth").unmask(-99).where(-99, image.select("water")), //Combined.select("water")
+          image.select("smooth"))
+          var image1 = ee.Image(condition).updateMask(ee.Image(condition).gt(-90)).rename('water')
+          return image1.copyProperties(image, ["system:time_start"]);;  
+        };
+        
+        ///////////////////////// Function to Smooth condition (for -2 +2 Smooth)
+        
+        var Fill_in1 = function(image){
+          var condition = ee.Algorithms.If(image.bandNames().contains("water"), 
+          image.select("smooth2").unmask(-99).where(-99, image.select("water")), //Combined.select("water")
+          image.select("smooth2"))
+          var image1 = ee.Image(condition).updateMask(ee.Image(condition).gt(-90)).rename('water')
+          var smooth = image.select("smooth2")
+          return image1.addBands(smooth).copyProperties(image, ["system:time_start"]);;  
+        };
+        
+        ///////////////////////// Function to Smooth condition (for -3 +3 Smooth)
+        
+        var Fill_in2 = function(image){
+          var condition = ee.Algorithms.If(image.bandNames().contains("water"), 
+          image.select("smooth3").unmask(-99).where(-99, image.select("water")), //Combined.select("water")
+          image.select("smooth3"))
+          var image1 = ee.Image(condition).updateMask(ee.Image(condition).gt(-90)).rename('water')
+          var smooth3 = image.select("smooth3")
+          return image1.addBands(smooth3).copyProperties(image, ["system:time_start"]);;  
+        };
+        
+        ///////////////////////// Function to Smooth condition (for -4 +4 Smooth)
+        
+        var Fill_in3 = function(image){
+          var condition = ee.Algorithms.If(image.bandNames().contains("water"), 
+          image.select("smooth4").unmask(-99).where(-99, image.select("water")), //Combined.select("water")
+          image.select("smooth4"))
+          var image1 = ee.Image(condition).updateMask(ee.Image(condition).gt(-90)).rename('water')
+          var smooth3 = image.select("smooth3")
+          return image1.addBands(smooth3).copyProperties(image, ["system:time_start"]);;  
+        };
+        
+        
+        //////////////////////// Apply the Functions to fill in the holes
+        
+        
+        var Combined = clouds_free.combine(replacedVals1).map(Fill_in).combine(replacedVals2).map(Fill_in1)
+                        .combine(replacedVals3).map(Fill_in2).combine(replacedVals4).map(Fill_in3).combine(replacedVals5)
+        
+        var TemporalSmoothing = Combined.filter(ee.Filter.neq('system:band_names', [])) //TemporalSmoothing(clouds_free, 5).filter(ee.Filter.neq('system:band_names', []))
+        
+        //print(TemporalSmoothing)
+        
+        //Map.addLayer(TemporalSmoothing.select('water'), {}, 'Filled Out', false);
+        //Map.addLayer(TemporalSmoothing.select('smooth3'), {}, 'smooth3', false)
+        
+        
+        ////////////////////////////////// Regional to extract Optimal Threshold //////////////
+        ////////////////////////////////////////////////////////////////////////////////////
+        
+        var max = TemporalSmoothing.select('smooth3').max()
+        var min = TemporalSmoothing.select('smooth3').min()
+        var medianNDWI_GN1 = (max.add(min)).divide(2)
+        
+        var medianNDWI_GN = (medianNDWI_GN1.add(medianNDWI_GN)).divide(2)
+        
+        //Map.addLayer(medianNDWI_GN)
+        
+        //Map.addLayer(medianNDWI_GN, {}, 'Median GN', false)
+        
+        
+        ///////////////////////////////////////////////
+        ////////////////////////////////////////////////////////////////////////////////////
+        
+        var ic_list = TemporalSmoothing.sort('system:time_start').toList(TemporalSmoothing.size())
+        
+        var ic_grad = ic_list.slice(0,-1)
+          .zip(ic_list.slice(1))
+          .map(function(f) { 
+            
+            ///////// Year
+            var image1 = ee.Image(ee.List(f).get(0)).metadata('year')
+            var image2 = ee.Image(ee.List(f).get(1)).metadata('year')
+            
+            /////////// mNDWI
+            var water1 = ee.Image(ee.List(f).get(1)).select('water')
+            var water0 = ee.Image(ee.List(f).get(0)).select('water')
+            
+            /////////// Smooth +- 5 anos
+            var smooth0 = ee.Image(ee.List(f).get(0)).select('smooth5')
+            var smooth1 = ee.Image(ee.List(f).get(1)).select('smooth5')
+            
+            /////////// Smooth +- 3 anos
+            
+            var smooth30 = ee.Image(ee.List(f).get(0)).select('smooth3')
+            var smooth31 = ee.Image(ee.List(f).get(1)).select('smooth3')
+            
+            var Condition = water0.gt(-1000).rename("Condition")
+            
+            //var Dif_smooth = smooth1.add(smooth0)
+            //var Dif = Dif_smooth
+            
+            //var water_dif = water1.subtract(water0)
+        
+            
+            ////////// Difference between Smooth and mNDWI
+            
+            return water0.rename('water')
+                .addBands(Condition)
+                .addBands(water1.rename('water1'))
+                .addBands(image1.rename('year'))
+                .addBands(image2.rename('year1'))
+                .addBands(smooth0.rename('smooth50'))
+                .addBands(smooth1.rename('smooth51'))
+                .addBands(smooth30.rename('smooth30'))
+                .addBands(smooth31.rename('smooth31'))
+                .addBands((image2.add(image1)).divide(2).rename('year_mean'))
+                //.addBands(Dif.rename('Smooth_mNDWI'))
+            
+                .set('year1', ee.Image(ee.List(f).get(0)).get('year'))
+                .set('year2', ee.Image(ee.List(f).get(1)).get('year'))
+               })
+            
+           
+        var ic_grad = ee.ImageCollection(ic_grad)
+      
+        //////////////// Minimum Year Mask ///////////////////////////////////////////////
+        
+        var Condition = function(image){
+          image = image.updateMask(image.select("Condition"))
+          return image
+        }
+        
+        var Mask = ic_grad.map(Condition).select("year1").min().selfMask().lt(1990)
+        
+        //Map.addLayer(Mask, {}, 'Mask')
+        
+        //Map.addLayer(TemporalSmoothing.select(['water']))
+        //Map.addLayer(ic_grad.select(['water', 'smooth50', 'smooth30']))
+        
+        
+        //////////////////////////// Water threshold Functions //////////////////////////////////////////////////
+        
+        var Classification_ero = function(image) {
+          var val1 = image.select('water').updateMask(ero)
+          var val2 = image.select('water1').updateMask(ero)
+          var condition = (val1.lt(medianNDWI_GN).and(val2.gt(medianNDWI_GN))).rename('condition')
+          var image1 = image.updateMask(condition) 
+          
+          ///////// Condition to +- 5 years
+          var val1 = image.select('smooth30').updateMask(ero)
+          var val2 = image.select('smooth31').updateMask(ero)
+          var condition = (val1.lt(medianNDWI_GN).and(val2.gt(medianNDWI_GN))).rename('condition')
+          var image2 = image.select("year_mean").updateMask(condition).rename("year_smooth")
+          
+          ///////// Condition to +- 3 years
+          var val1 = image.select('smooth30').updateMask(ero)
+          var val2 = image.select('smooth31').updateMask(ero)
+          var condition = (val1.lt(medianNDWI_GN).and(val2.gt(medianNDWI_GN))).rename('condition_3')
+          var image3 = image.select("year_mean").updateMask(condition).rename("year_smooth_3")
+        
+          return image1.addBands(image2).addBands(image3);
+        };
+        
+        var erosion_general = ic_grad.map(Classification_ero)
+        
+        var Classification_sed = function(image) {
+          var val1 = image.select('water').updateMask(sed)
+          var val2 = image.select('water1').updateMask(sed)
+          var condition = (val1.gt(medianNDWI_GN).and(val2.lt(medianNDWI_GN))).rename('condition')
+          var image1 = image.updateMask(condition) 
+          
+          ///////// Condition to +- 5 years
+          var val1 = image.select('smooth30').updateMask(sed)
+          var val2 = image.select('smooth31').updateMask(sed)
+          var condition = (val1.gt(medianNDWI_GN).and(val2.lt(medianNDWI_GN))).rename('condition')
+          var image2 = image.select("year_mean").updateMask(condition).rename("year_smooth")
+          
+          ///////// Condition to +- 3 years
+          var val1 = image.select('smooth30').updateMask(sed)
+          var val2 = image.select('smooth31').updateMask(sed)
+          var condition = (val1.gt(medianNDWI_GN).and(val2.lt(medianNDWI_GN))).rename('condition')
+          var image3 = image.select("year_mean").updateMask(condition).rename("year_smooth_3")
+          
+          return image1.addBands(image2).addBands(image3);
+        };
+        
+        var sedimentation_general = ic_grad.map(Classification_sed)
+        
+        
+        
+        ///////////////////////////// Create a function to compare the reference to the year (FIRST analysis) ////////////////////
+        ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+        
+        /////////// For erosion /////////////////////////////////////////////////////
+        
+        var reference_ero = erosion_general.select("year_smooth").max()
+        
+        var Classification_ero_Dif = function(image) {
+          var year = image.select("year_mean")
+          var Dif = year.subtract(reference_ero).abs().rename("Difference")
+          return Dif.addBands(year);
+        };
+        
+        var ero_tendency = erosion_general.map(Classification_ero_Dif)
+        var ero_tendency = ero_tendency.reduce(ee.Reducer.min(2)).rename('Difference', 'year_mean').select('year_mean') 
+        
+        ////////// For sedimentation ///////////////////////////////////////////////
+        
+        var reference_sed = sedimentation_general.select("year_smooth").max()
+        
+        var Classification_sed_Dif = function(image) {
+          var year = image.select("year_mean")
+          var Dif = year.subtract(reference_sed).abs().rename("Difference")
+          return Dif.addBands(year);
+        };
+        
+        var sed_tendency = sedimentation_general.map(Classification_sed_Dif)
+        var sed_tendency = sed_tendency.reduce(ee.Reducer.min(2)).rename('Difference', 'year_mean').select('year_mean') 
+        
+        
+        ///////////////////////////// Create a function to compare the reference to the year (SECOND analysis) ////////////////////
+        ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+        
+        /////////// For erosion /////////////////////////////////////////////////////
+        
+        var reference_ero = erosion_general.select("year_smooth_3").max()
+        
+        var Classification_ero_Dif = function(image) {
+          var year = image.select("year_mean")
+          var Dif = year.subtract(reference_ero).abs().rename("Difference")
+          return Dif.addBands(year);
+        };
+        
+        var ero_tendency1 = erosion_general.map(Classification_ero_Dif)
+        var ero_tendency1 = ero_tendency1.reduce(ee.Reducer.min(2)).rename('Difference', 'year_mean').select('year_mean') 
+        
+        ////////// For sedimentation ///////////////////////////////////////////////
+        
+        var reference_sed = sedimentation_general.select("year_smooth_3").max()
+        
+        var Classification_sed_Dif = function(image) {
+          var year = image.select("year_mean")
+          var Dif = year.subtract(reference_sed).abs().rename("Difference")
+          return Dif.addBands(year);
+        };
+        
+        var sed_tendency1 = sedimentation_general.map(Classification_sed_Dif)
+        var sed_tendency1 = sed_tendency1.reduce(ee.Reducer.min(2)).rename('Difference', 'year_mean').select('year_mean') 
+        
+        
+        ///////////////////////////////// MERGE THE TWO ANALYSIS ////////////////////////////////////////
+        
+        var erosion = ero_tendency1.where(ero_tendency,  ero_tendency).int().updateMask(Mask)
+        var sedimentation = sed_tendency1.where(ero_tendency,  ero_tendency).int().updateMask(Mask)
+        
+        
+        var palettes = require('users/gena/packages:palettes');
+        var palette1 = palettes.kovesi.linear_blue_5_95_c73[7];
+        var palette2 = palettes.kovesi.linear_kry_5_95_c72[7];
+        
+        var viz = {
+          min: 1984,
+          max: 2022,
+          palette: palette1
+        };
+        
+        var viz1 = {
+          min: 1984,
+          max: 2022,
+          palette: palette2
+        };
+        
+        var kernel = ee.Kernel.circle({radius: 1});
+        
+        Map.addLayer(erosion.int(), viz, 'TOGETHER erosion 3 INT ');
+        Map.addLayer(sedimentation.int(), viz1, 'TOGETHER sedimentation 3 INT');
+        
+        var erosion = erosion.rename('Land-Water')
+        var sedimentation = sedimentation.rename('Water-Land')
+        
+        var Imagem = erosion.addBands(sedimentation)
+        
+
+         
+         Export.image.toDrive({
+               image: Imagem,
+                description: 'Change',
+                scale: 30,
+                region: Regiao,
+                maxPixels: 1e13
+              });
+
+}
+
+
+
+
