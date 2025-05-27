@@ -1,5 +1,7 @@
 # Phd_Gustavo_Nagel
-This repository provides access to all Google Earth Engine (GEE) scripts developed during Gustavo Nagel's PhD research. 
+This repository provides access to all Google Earth Engine (GEE) scripts developed during Gustavo Nagel's PhD research.
+
+Please copy and paste the contents of the file into the Google Earth Engine code editor.
 
 It includes:      
 
